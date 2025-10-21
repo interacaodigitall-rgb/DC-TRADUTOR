@@ -11,69 +11,77 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { translateText, generateSpeech, getAiClient, initializeAiClient } from './services/geminiService';
 import { SUPPORTED_LANGUAGES } from './constants';
 import { decode, decodeAudioData } from './utils/audio';
-import MicIcon from './components/icons/MicIcon';
-import Flag from './components/Flag';
-import LanguageModal from './components/LanguageModal';
-import ChatBubble from './components/ChatBubble';
+import { useDebounce } from './utils/hooks';
+import SwapIcon from './components/icons/SwapIcon';
 import ApiKeyError from './components/ApiKeyError';
-
-interface Message {
-    id: number;
-    text: string;
-    isSourceLanguage: boolean;
-    isLoading?: boolean;
-}
+import TranslationPanel from './components/TranslationPanel';
+import LanguageSelector from './components/LanguageSelector';
+import { type Language } from './types';
 
 const App: React.FC = () => {
-    const [sourceLang, setSourceLang] = useState<string>('es-ES');
-    const [targetLang, setTargetLang] = useState<string>('en-US');
-    const [conversation, setConversation] = useState<Message[]>([]);
-    const [currentTranscript, setCurrentTranscript] = useState<string>('');
+    const [sourceLang, setSourceLang] = useState<string>('auto');
+    const [targetLang, setTargetLang] = useState<string>('pt-BR');
+    const [inputText, setInputText] = useState<string>('');
+    const [outputText, setOutputText] = useState<string>('');
     const [isRecording, setIsRecording] = useState<boolean>(false);
+    const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
-    
-    const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-    const [modalTarget, setModalTarget] = useState<'source' | 'target'>('source');
-    const [activeInput, setActiveInput] = useState<'source' | 'target'>('source');
-    const [conversationModeActive, setConversationModeActive] = useState<boolean>(false);
     const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-
-
+    
+    const debouncedInputText = useDebounce(inputText, 500);
     const recognitionRef = useRef<any | null>(null);
-    const chatEndRef = useRef<HTMLDivElement | null>(null);
-    const finalTranscriptAggregatedRef = useRef<string>('');
+    const finalTranscriptRef = useRef<string>('');
+    const startRecAfterSwap = useRef(false);
 
     useEffect(() => {
         try {
             getAiClient();
         } catch (err) {
-            if (err instanceof Error) {
-                setApiKeyError(err.message);
-            } else {
-                setApiKeyError("An unexpected error occurred on startup.");
-            }
+            setApiKeyError(err instanceof Error ? err.message : "An unexpected error occurred on startup.");
         }
     }, []);
-    
+
     const handleApiKeySubmit = async (key: string) => {
         try {
             initializeAiClient(key);
-            // Test the key with a simple API call to ensure it's valid.
+            // Test the key with a simple translation
             await translateText("hello", "English", "Portuguese");
-            setApiKeyError(null); // Key is valid, clear error and render the app.
+            setApiKeyError(null); // Key is valid, clear the error screen
         } catch (err) {
             console.error("API Key validation failed:", err);
             setApiKeyError("A chave fornecida é inválida ou a API não respondeu. Verifique a chave e sua conexão de rede, e tente novamente.");
         }
     };
 
+    const handleTranslate = useCallback(async (textToTranslate: string) => {
+        if (!textToTranslate.trim()) {
+            setOutputText('');
+            return;
+        }
+        setError(null);
+        setIsLoading(true);
+        setOutputText('');
+
+        try {
+            const sourceLangName = SUPPORTED_LANGUAGES.find(l => l.code === sourceLang)?.name || 'Auto Detect';
+            const targetLangName = SUPPORTED_LANGUAGES.find(l => l.code === targetLang)?.name || 'Portuguese';
+            const translated = await translateText(textToTranslate, sourceLangName, targetLangName);
+            setOutputText(translated);
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+            setError(`Translation failed: ${errorMessage}`);
+            setOutputText('');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [sourceLang, targetLang]);
 
     useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [conversation, currentTranscript]);
-
+        handleTranslate(debouncedInputText);
+    }, [debouncedInputText, handleTranslate]);
+    
     const playAudio = useCallback(async (textToPlay: string) => {
-        if (!textToPlay.trim() || textToPlay === '...') return;
+        if (!textToPlay.trim()) return;
         let outputAudioContext: AudioContext | null = null;
         try {
             const audioData = await generateSpeech(textToPlay);
@@ -84,96 +92,50 @@ const App: React.FC = () => {
             const audioBuffer = await decodeAudioData(
                 decode(audioData),
                 outputAudioContext,
-                24000,
-                1
+                24000, 1
             );
             
-            return new Promise<void>((resolve) => {
-                const source = outputAudioContext.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(outputNode);
-                source.onended = () => {
-                    outputAudioContext?.close().catch(console.error);
-                    resolve();
-                };
-                source.start();
-            });
+            const source = outputAudioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(outputNode);
+            source.onended = () => {
+                outputAudioContext?.close().catch(console.error);
+            };
+            source.start();
+
         } catch (err) {
             console.error("Error during audio playback:", err);
             const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
             setError(`Audio playback failed: ${errorMessage}`);
             outputAudioContext?.close().catch(console.error);
-            throw err;
         }
     }, []);
 
-    const handleTranslationAndSpeech = useCallback(async (text: string, direction: 'source' | 'target') => {
-        if (!text.trim()) return;
-        setError(null);
-        
-        const isSourceToTarget = direction === 'source';
-        const fromLangCode = isSourceToTarget ? sourceLang : targetLang;
-        const toLangCode = isSourceToTarget ? targetLang : sourceLang;
-        const fromLangName = SUPPORTED_LANGUAGES.find(l => l.code === fromLangCode)?.name || 'auto';
-        const toLangName = SUPPORTED_LANGUAGES.find(l => l.code === toLangCode)?.name || 'the target language';
-        
-        const userMessage: Message = { id: Date.now(), text, isSourceLanguage: true }; // User input is always "source" bubble color
-        const translationPlaceholder: Message = { id: Date.now() + 1, text: '...', isSourceLanguage: false, isLoading: true };
-
-        setConversation(prev => [...prev, userMessage, translationPlaceholder]);
-
-        try {
-            const translated = await translateText(text, fromLangName, toLangName);
-            
-            setConversation(prev => prev.map(msg => 
-                msg.id === translationPlaceholder.id 
-                ? { ...msg, text: translated, isLoading: false } 
-                : msg
-            ));
-            
-            // Await audio playback before proceeding
-            await playAudio(translated);
-
-            if (conversationModeActive) {
-                // Switch language and continue recognition
-                setActiveInput(prev => prev === 'source' ? 'target' : 'source');
-            }
-
-        } catch (err) {
-            console.error(err);
-            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-            setError(`Translation failed: ${errorMessage}`);
-            // Clean up failed messages
-            setConversation(prev => prev.filter(msg => msg.id !== userMessage.id && msg.id !== translationPlaceholder.id));
-            setConversationModeActive(false);
-        }
-    }, [sourceLang, targetLang, conversationModeActive, playAudio]);
-
-    const startRecognition = useCallback(() => {
-        if (recognitionRef.current && !isRecording) {
-            finalTranscriptAggregatedRef.current = '';
-            setCurrentTranscript('');
-            recognitionRef.current.lang = activeInput === 'source' ? sourceLang : targetLang;
-            recognitionRef.current.start();
-            setIsRecording(true);
-            setError(null);
-        }
-    }, [activeInput, sourceLang, targetLang, isRecording]);
-
-    const stopRecognition = useCallback(() => {
-        if (recognitionRef.current && isRecording) {
-            recognitionRef.current.stop();
-            setIsRecording(false);
-        }
-    }, [isRecording]);
-
-    useEffect(() => {
-        if (conversationModeActive) {
-            startRecognition();
+    const toggleRecording = () => {
+        if (isRecording) {
+            recognitionRef.current?.stop();
         } else {
-            stopRecognition();
+            startRecognition();
         }
-    }, [conversationModeActive, activeInput, startRecognition, stopRecognition]);
+    };
+
+    const startRecognition = () => {
+        if (recognitionRef.current) {
+            finalTranscriptRef.current = '';
+            setInputText(''); // Clear text on new recording
+            setOutputText('');
+            recognitionRef.current.lang = sourceLang === 'auto' ? 'en-US' : sourceLang; // SpeechRecognition needs a concrete lang
+            recognitionRef.current.start();
+        }
+    };
+    
+    useEffect(() => {
+        // This effect starts recording after languages have been swapped by `handleTargetRecord`
+        if (startRecAfterSwap.current) {
+            startRecAfterSwap.current = false;
+            toggleRecording();
+        }
+    }, [sourceLang, targetLang]); // Depends on state change to fire after re-render
 
     useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -186,120 +148,124 @@ const App: React.FC = () => {
         recognition.continuous = true;
         recognition.interimResults = true;
 
-        recognition.onresult = (event: any) => {
-            let interimTranscript = '';
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) {
-                    finalTranscriptAggregatedRef.current += event.results[i][0].transcript;
-                } else {
-                    interimTranscript += event.results[i][0].transcript;
-                }
-            }
-            setCurrentTranscript(interimTranscript);
-        };
-
+        recognition.onstart = () => setIsRecording(true);
+        recognition.onend = () => setIsRecording(false);
         recognition.onerror = (event: any) => {
             console.error('Speech recognition error:', event.error);
             setError(`Speech recognition error: ${event.error}`);
             setIsRecording(false);
-            setConversationModeActive(false);
         };
-        
-        recognition.onend = () => {
-            setIsRecording(false);
-            const finalTranscript = finalTranscriptAggregatedRef.current.trim();
-            if (finalTranscript) {
-              handleTranslationAndSpeech(finalTranscript, activeInput);
-            } else if (conversationModeActive) {
-              startRecognition();
+        recognition.onresult = (event: any) => {
+            let interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    finalTranscriptRef.current += event.results[i][0].transcript + ' ';
+                } else {
+                    interimTranscript += event.results[i][0].transcript;
+                }
             }
-            finalTranscriptAggregatedRef.current = '';
-            setCurrentTranscript('');
+            setInputText(finalTranscriptRef.current + interimTranscript);
         };
         
         recognitionRef.current = recognition;
 
-        return () => {
-            recognition.abort();
-        };
-    }, [activeInput, conversationModeActive, startRecognition, handleTranslationAndSpeech]);
+        return () => recognition.abort();
+    }, [sourceLang]);
 
-    const toggleConversationMode = () => {
-        setConversationModeActive(prev => !prev);
-    };
-    
-    const openLanguageModal = (target: 'source' | 'target') => {
-        setModalTarget(target);
-        setIsModalOpen(true);
+    const handleSwapLanguages = () => {
+        if (sourceLang === 'auto') return;
+
+        setSourceLang(targetLang);
+        setTargetLang(sourceLang);
+        
+        setInputText(outputText);
+        setOutputText(inputText);
     };
 
-    const handleSelectLanguage = (langCode: string) => {
-        setConversationModeActive(false);
-        setConversation([]);
-        setActiveInput('source');
-        if (modalTarget === 'source') {
-            setSourceLang(langCode);
-        } else {
-            setTargetLang(langCode);
+    const handleTargetRecord = () => {
+        if (isRecording) {
+            toggleRecording();
+            return;
         }
-    };
+        if (sourceLang === 'auto') return; // Should be disabled, but as a safeguard.
 
-    const micButtonClasses = conversationModeActive
-        ? 'bg-red-700 scale-110 animate-pulse'
-        : 'bg-red-600';
+        startRecAfterSwap.current = true; // Set flag to start recording after state update
+        setSourceLang(targetLang);
+        setTargetLang(sourceLang);
+        setInputText('');
+        setOutputText('');
+    };
 
     if (apiKeyError) {
         return <ApiKeyError onApiKeySubmit={handleApiKeySubmit} error={apiKeyError} />;
     }
 
     return (
-        <div className="h-screen w-screen bg-[#FFF9F0] flex flex-col font-sans text-gray-800">
-            <header className="text-center p-4 border-b border-gray-200 bg-white flex-shrink-0">
-                <h1 className="text-xl font-semibold text-gray-700">Translate</h1>
-            </header>
-            
-            <main className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
-                {conversation.length === 0 && !isRecording && !currentTranscript && (
-                    <div className="m-auto text-center text-gray-400">
-                        <p>Press the microphone to start</p>
-                        <p>a conversation.</p>
+        <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 sm:p-6 lg:p-8 font-sans text-slate-800">
+            <div className="w-full max-w-5xl mx-auto">
+                <header className="text-center mb-8">
+                    <h1 className="text-4xl sm:text-5xl font-bold text-gray-800 tracking-tight">Ayla Translator</h1>
+                </header>
+
+                <main className="bg-white rounded-2xl shadow-xl border border-gray-200/80 p-4 sm:p-6">
+                    <div className="flex flex-col sm:flex-row justify-between items-center gap-2 mb-4 sm:gap-4 flex-wrap">
+                        <div className="w-full sm:w-auto flex-1">
+                            <select
+                                value={sourceLang}
+                                onChange={(e) => setSourceLang(e.target.value)}
+                                className="w-full bg-gray-100 border-transparent text-gray-700 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 appearance-none text-center sm:text-left font-medium"
+                                aria-label="Select source language"
+                            >
+                                {SUPPORTED_LANGUAGES.map((lang: Language) => (
+                                    <option key={lang.code} value={lang.code}>
+                                        {lang.flag} {lang.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <button 
+                            onClick={handleSwapLanguages}
+                            className="p-3 rounded-full hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            aria-label="Swap languages"
+                            disabled={sourceLang === 'auto'}
+                        >
+                            <SwapIcon />
+                        </button>
+
+                        <LanguageSelector selectedLanguage={targetLang} onLanguageChange={setTargetLang} />
                     </div>
-                )}
 
-                {conversation.map(msg => (
-                    <ChatBubble 
-                        key={msg.id}
-                        text={msg.text} 
-                        isSource={msg.isSourceLanguage} 
-                        onPlayAudio={() => playAudio(msg.text)} 
-                        isLoading={msg.isLoading} 
-                    />
-                ))}
+                    <div className="grid sm:grid-cols-2 gap-4">
+                        <TranslationPanel
+                            id="source-panel"
+                            text={inputText}
+                            onTextChange={setInputText}
+                            onRecord={toggleRecording}
+                            isRecording={isRecording}
+                            placeholder="Enter text or use microphone"
+                            isSource={true}
+                            onPlayAudio={() => playAudio(inputText)}
+                        />
+                        <TranslationPanel
+                            id="target-panel"
+                            text={outputText}
+                            onPlayAudio={() => playAudio(outputText)}
+                            isLoading={isLoading}
+                            placeholder="Translation"
+                            isSource={false}
+                            onRecord={handleTargetRecord}
+                            isRecording={isRecording}
+                            isTargetMicDisabled={sourceLang === 'auto'}
+                        />
+                    </div>
+                     {error && <div className="mt-4 p-3 bg-red-100 text-red-700 text-center text-sm rounded-lg">{error}</div>}
+                </main>
 
-                {isRecording && <div className="text-center text-red-600 p-2 self-center bg-red-50 rounded-lg">{currentTranscript || 'Listening...'}</div>}
-
-                <div ref={chatEndRef} />
-            </main>
-
-            {error && <div className="p-2 bg-red-100 text-red-700 text-center text-sm flex-shrink-0">{error}</div>}
-
-            <footer className="p-4 bg-white border-t flex-shrink-0">
-                <div className="flex justify-evenly items-center">
-                    <Flag langCode={sourceLang} onClick={() => openLanguageModal('source')} isActive={activeInput === 'source'} />
-                    
-                    <button onClick={toggleConversationMode} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-lg ${micButtonClasses}`} aria-label={conversationModeActive ? 'End conversation' : 'Start conversation'}>
-                        <MicIcon recording={isRecording} />
-                    </button>
-                    
-                    <Flag langCode={targetLang} onClick={() => openLanguageModal('target')} isActive={activeInput === 'target'} />
-                </div>
-            </footer>
-            
-            <LanguageModal 
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                onSelectLanguage={handleSelectLanguage}
-            />
+                <footer className="text-center mt-8 text-sm text-gray-400">
+                    <p>Powered by Google Gemini</p>
+                </footer>
+            </div>
         </div>
     );
 };

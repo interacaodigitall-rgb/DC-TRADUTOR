@@ -16,19 +16,19 @@ const ApiKeyError: React.FC<ApiKeyErrorProps> = ({ onApiKeySubmit, error }) => {
     };
 
     return (
-        <div className="h-screen w-screen bg-red-50 flex flex-col justify-center items-center p-4 font-sans">
+        <div className="min-h-screen w-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans">
             <div className="max-w-xl w-full">
-                <h1 className="text-3xl font-bold text-red-700 mb-2 text-center">Erro de Configuração</h1>
-                <h2 className="text-lg text-red-600 mb-6 text-center">A Chave da API Gemini não foi encontrada</h2>
+                <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">Configuration Error</h1>
+                <h2 className="text-lg text-gray-500 mb-6 text-center">Gemini API Key Not Found</h2>
                 
-                <div className="bg-white p-6 rounded-lg shadow-md border border-red-200">
+                <div className="bg-white p-6 rounded-lg shadow-lg border border-gray-200/80">
                     <p className="text-gray-700 mb-4">
-                        O aplicativo não conseguiu encontrar a chave da API nas variáveis de ambiente da Vercel.
+                        The application could not find the required API key in the Vercel environment variables.
                     </p>
                     
                     <form onSubmit={handleSubmit} className="mb-6">
                         <label htmlFor="apiKeyInput" className="block text-sm font-medium text-gray-700 mb-2">
-                           Para usar o app agora, insira sua chave temporariamente:
+                           To use the app now, please enter your key temporarily:
                         </label>
                         <div className="flex gap-2">
                              <input
@@ -36,34 +36,34 @@ const ApiKeyError: React.FC<ApiKeyErrorProps> = ({ onApiKeySubmit, error }) => {
                                 type="password"
                                 value={apiKey}
                                 onChange={(e) => setApiKey(e.target.value)}
-                                placeholder="Cole sua chave da API aqui"
-                                className="flex-grow p-2 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
+                                placeholder="Paste your API key here"
+                                className="flex-grow p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                                 aria-label="API Key Input"
                             />
                             <button 
                                 type="submit"
-                                className="px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:bg-red-300"
+                                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300"
                                 disabled={!apiKey.trim()}
                             >
-                                Usar Chave
+                                Use Key
                             </button>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">Esta chave é usada apenas para esta sessão e não será armazenada.</p>
+                        <p className="text-xs text-gray-500 mt-1">This key is used for this session only and will not be stored.</p>
                     </form>
 
                     {error && !error.includes("not configured") && (
                         <div className="p-3 bg-red-100 text-red-800 rounded-md text-sm mb-4">
-                           <strong>Erro:</strong> {error}
+                           <strong>Error:</strong> {error}
                         </div>
                     )}
                     
                     <div className="text-sm text-gray-600 border-t pt-4">
-                        <p className="font-semibold mb-2">Para uma solução permanente:</p>
+                        <p className="font-semibold mb-2">For a permanent solution:</p>
                         <ol className="list-decimal list-inside space-y-1">
-                            <li>Vá para o seu projeto na <strong>Vercel</strong>.</li>
-                            <li>Acesse <strong>Settings</strong> &rarr; <strong>Environment Variables</strong>.</li>
-                            <li>Crie uma variável com o nome <code className="bg-gray-200 p-1 rounded">API_KEY</code> e cole sua chave no valor.</li>
-                            <li>**Importante:** Faça um novo "deploy" (implantação) para aplicar a alteração.</li>
+                            <li>Go to your project on <strong>Vercel</strong>.</li>
+                            <li>Navigate to <strong>Settings</strong> &rarr; <strong>Environment Variables</strong>.</li>
+                            <li>Create a variable named <code className="bg-gray-200 p-1 rounded">API_KEY</code> and paste your key in the value field.</li>
+                            <li>**Important:** Re-deploy the project to apply the changes.</li>
                         </ol>
                     </div>
                 </div>

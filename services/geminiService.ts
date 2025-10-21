@@ -48,12 +48,16 @@ export async function translateText(
 ): Promise<string> {
   try {
     const client = getAiClient();
-    // FIX: Refactored to use systemInstruction for better prompting, per Gemini API guidelines.
+    
+    const systemInstruction = sourceLang === 'Auto Detect'
+        ? `You are a professional translator. First, automatically detect the language of the provided text. Then, translate it to ${targetLang}, keeping the natural meaning.`
+        : `You are a professional translator. Translate the provided text from ${sourceLang} to ${targetLang}, keeping the natural meaning.`;
+
     const response = await client.models.generateContent({
       model: "gemini-2.5-flash",
       contents: `"${text}"`,
       config: {
-        systemInstruction: `You are a professional translator. Translate the provided text from ${sourceLang} to ${targetLang}, keeping the natural meaning.`,
+        systemInstruction: systemInstruction,
       },
     });
     return response.text.trim();

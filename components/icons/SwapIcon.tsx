@@ -12,7 +12,7 @@ const SwapIcon: React.FC = () => (
     strokeWidth="2"
     strokeLinecap="round"
     strokeLinejoin="round"
-    className="text-slate-300"
+    className="text-slate-500"
   >
     <polyline points="17 1 21 5 17 9"></polyline>
     <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
