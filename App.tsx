@@ -16,28 +16,28 @@ import Flag from './components/Flag';
 import LanguageModal from './components/LanguageModal';
 import ChatBubble from './components/ChatBubble';
 
-interface ConversationTurn {
+interface Message {
     id: number;
-    sourceText: string;
-    translatedText: string;
+    text: string;
+    isSourceLanguage: boolean;
+    isLoading?: boolean;
 }
 
 const App: React.FC = () => {
     const [sourceLang, setSourceLang] = useState<string>('pt-BR');
     const [targetLang, setTargetLang] = useState<string>('en-US');
-    const [conversation, setConversation] = useState<ConversationTurn[]>([]);
+    const [conversation, setConversation] = useState<Message[]>([]);
     const [currentTranscript, setCurrentTranscript] = useState<string>('');
-    const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     
     const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
     const [modalTarget, setModalTarget] = useState<'source' | 'target'>('source');
+    const [activeInput, setActiveInput] = useState<'source' | 'target'>('source');
 
     const recognitionRef = useRef<any | null>(null);
     const chatEndRef = useRef<HTMLDivElement | null>(null);
     const finalTranscriptAggregatedRef = useRef<string>('');
-
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -53,19 +53,16 @@ const App: React.FC = () => {
         const recognition = new SpeechRecognition();
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = sourceLang;
 
         recognition.onresult = (event: any) => {
             let interimTranscript = '';
-            let finalTranscript = '';
             for (let i = event.resultIndex; i < event.results.length; ++i) {
                 if (event.results[i].isFinal) {
-                    finalTranscript += event.results[i][0].transcript;
+                    finalTranscriptAggregatedRef.current += event.results[i][0].transcript;
                 } else {
                     interimTranscript += event.results[i][0].transcript;
                 }
             }
-            finalTranscriptAggregatedRef.current = finalTranscript;
             setCurrentTranscript(interimTranscript);
         };
 
@@ -79,38 +76,55 @@ const App: React.FC = () => {
             setIsRecording(false);
             const finalTranscript = finalTranscriptAggregatedRef.current.trim();
             if (finalTranscript) {
-              handleTranslationAndSpeech(finalTranscript);
+              handleTranslationAndSpeech(finalTranscript, activeInput);
             }
             finalTranscriptAggregatedRef.current = '';
             setCurrentTranscript('');
         };
         
         recognitionRef.current = recognition;
-    }, [sourceLang]);
+    }, []);
 
-    const handleTranslationAndSpeech = useCallback(async (text: string) => {
-        setIsLoading(true);
+    const handleTranslationAndSpeech = useCallback(async (text: string, direction: 'source' | 'target') => {
         setError(null);
         
-        const tempId = Date.now();
-        setConversation(prev => [...prev, {id: tempId, sourceText: text, translatedText: '...'}]);
+        const isSourceToTarget = direction === 'source';
+        const fromLangCode = isSourceToTarget ? sourceLang : targetLang;
+        const toLangCode = isSourceToTarget ? targetLang : sourceLang;
+        const fromLangName = SUPPORTED_LANGUAGES.find(l => l.code === fromLangCode)?.name || 'auto';
+        const toLangName = SUPPORTED_LANGUAGES.find(l => l.code === toLangCode)?.name || 'the target language';
+        
+        const userMessage: Message = {
+            id: Date.now(),
+            text,
+            isSourceLanguage: isSourceToTarget,
+        };
+        const translationPlaceholder: Message = {
+            id: Date.now() + 1,
+            text: '...',
+            isSourceLanguage: !isSourceToTarget,
+            isLoading: true,
+        };
+
+        setConversation(prev => [...prev, userMessage, translationPlaceholder]);
 
         try {
-            const sourceLanguage = SUPPORTED_LANGUAGES.find(l => l.code === sourceLang)?.name || 'auto';
-            const targetLanguage = SUPPORTED_LANGUAGES.find(l => l.code === targetLang)?.name || 'the target language';
-            const translated = await translateText(text, sourceLanguage, targetLanguage);
-
-            setConversation(prev => prev.map(turn => turn.id === tempId ? { ...turn, translatedText: translated } : turn));
+            const translated = await translateText(text, fromLangName, toLangName);
+            
+            setConversation(prev => prev.map(msg => 
+                msg.id === translationPlaceholder.id 
+                ? { ...msg, text: translated, isLoading: false } 
+                : msg
+            ));
             
             await handlePlayAudio(translated);
+            setActiveInput(prev => prev === 'source' ? 'target' : 'source');
 
         } catch (err) {
             console.error(err);
             const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
             setError(`Translation failed: ${errorMessage}`);
-            setConversation(prev => prev.filter(turn => turn.id !== tempId));
-        } finally {
-            setIsLoading(false);
+            setConversation(prev => prev.filter(msg => msg.id !== userMessage.id && msg.id !== translationPlaceholder.id));
         }
     }, [sourceLang, targetLang]);
 
@@ -122,7 +136,7 @@ const App: React.FC = () => {
             if (recognitionRef.current) {
                 finalTranscriptAggregatedRef.current = '';
                 setCurrentTranscript('');
-                recognitionRef.current.lang = sourceLang;
+                recognitionRef.current.lang = activeInput === 'source' ? sourceLang : targetLang;
                 recognitionRef.current.start();
                 setIsRecording(true);
                 setError(null);
@@ -165,10 +179,16 @@ const App: React.FC = () => {
 
     const handleSelectLanguage = (langCode: string) => {
         if (modalTarget === 'source') {
-            if (langCode !== sourceLang) setConversation([]);
+            if (langCode !== sourceLang) {
+                setConversation([]);
+                setActiveInput('source');
+            }
             setSourceLang(langCode);
         } else {
-            if (langCode !== targetLang) setConversation([]);
+            if (langCode !== targetLang) {
+                setConversation([]);
+                setActiveInput('source');
+            }
             setTargetLang(langCode);
         }
     };
@@ -187,11 +207,14 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {conversation.map(turn => (
-                    <React.Fragment key={turn.id}>
-                        <ChatBubble text={turn.sourceText} isSource={true} onPlayAudio={() => handlePlayAudio(turn.sourceText)} />
-                        <ChatBubble text={turn.translatedText} isSource={false} onPlayAudio={() => handlePlayAudio(turn.translatedText)} isLoading={turn.translatedText === '...'} />
-                    </React.Fragment>
+                {conversation.map(msg => (
+                    <ChatBubble 
+                        key={msg.id}
+                        text={msg.text} 
+                        isSource={msg.isSourceLanguage} 
+                        onPlayAudio={() => handlePlayAudio(msg.text)} 
+                        isLoading={msg.isLoading} 
+                    />
                 ))}
 
                 {isRecording && <div className="text-center text-blue-500 p-2 self-center bg-blue-50 rounded-lg">{currentTranscript || 'Listening...'}</div>}
@@ -203,13 +226,13 @@ const App: React.FC = () => {
 
             <footer className="p-4 bg-gray-100 border-t flex-shrink-0">
                 <div className="flex justify-evenly items-center">
-                    <Flag langCode={sourceLang} onClick={() => openLanguageModal('source')} />
+                    <Flag langCode={sourceLang} onClick={() => openLanguageModal('source')} isActive={activeInput === 'source'} />
                     
                     <button onClick={handleRecord} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-lg ${isRecording ? 'bg-red-500 scale-110' : 'bg-blue-500'}`} aria-label={isRecording ? 'Stop recording' : 'Start recording'}>
                         <MicIcon recording={isRecording} />
                     </button>
                     
-                    <Flag langCode={targetLang} onClick={() => openLanguageModal('target')} />
+                    <Flag langCode={targetLang} onClick={() => openLanguageModal('target')} isActive={activeInput === 'target'} />
                 </div>
             </footer>
             
