@@ -1,0 +1,7 @@
+{
+  "name": "DcTranslator",
+  "description": "A powerful translator application that leverages Gemini for text translation, voice transcription, and text-to-speech audio generation. Translate between languages using text or voice input and listen to the translated output.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
