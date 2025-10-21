@@ -14,7 +14,7 @@ const getFlagEmoji = (langCode: string): string => {
 };
 
 const Flag: React.FC<FlagProps> = ({ langCode, onClick, isActive }) => {
-  const activeClasses = isActive ? 'ring-4 ring-offset-2 ring-blue-500' : '';
+  const activeClasses = isActive ? 'ring-4 ring-offset-2 ring-red-600' : '';
 
   return (
     <button 

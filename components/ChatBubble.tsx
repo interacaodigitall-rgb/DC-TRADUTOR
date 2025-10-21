@@ -10,7 +10,7 @@ interface ChatBubbleProps {
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({ text, isSource, onPlayAudio, isLoading = false }) => {
     const bubbleClasses = isSource
-        ? 'bg-blue-500 text-white self-end rounded-br-lg'
+        ? 'bg-red-600 text-white self-end rounded-br-lg'
         : 'bg-gray-200 text-gray-800 self-start rounded-bl-lg';
 
     if (isLoading) {
@@ -26,7 +26,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ text, isSource, onPlayAudio, is
             <p className="flex-1 break-words">{text}</p>
             <button
                 onClick={onPlayAudio}
-                className={`p-1 rounded-full transition-colors self-end ${isSource ? 'hover:bg-blue-600' : 'hover:bg-gray-300'}`}
+                className={`p-1 rounded-full transition-colors self-end ${isSource ? 'hover:bg-red-700' : 'hover:bg-gray-300'}`}
                 aria-label="Listen"
             >
                 <SpeakerIcon isSource={isSource} />

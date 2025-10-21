@@ -24,7 +24,7 @@ interface Message {
 }
 
 const App: React.FC = () => {
-    const [sourceLang, setSourceLang] = useState<string>('pt-BR');
+    const [sourceLang, setSourceLang] = useState<string>('es-ES');
     const [targetLang, setTargetLang] = useState<string>('en-US');
     const [conversation, setConversation] = useState<Message[]>([]);
     const [currentTranscript, setCurrentTranscript] = useState<string>('');
@@ -39,38 +39,10 @@ const App: React.FC = () => {
     const recognitionRef = useRef<any | null>(null);
     const chatEndRef = useRef<HTMLDivElement | null>(null);
     const finalTranscriptAggregatedRef = useRef<string>('');
-    const audioQueue = useRef<(() => Promise<void>)[]>([]);
-    const isPlayingAudio = useRef(false);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [conversation, currentTranscript]);
-
-    const startRecognition = useCallback(() => {
-        if (recognitionRef.current && !isRecording) {
-            finalTranscriptAggregatedRef.current = '';
-            setCurrentTranscript('');
-            recognitionRef.current.lang = activeInput === 'source' ? sourceLang : targetLang;
-            recognitionRef.current.start();
-            setIsRecording(true);
-            setError(null);
-        }
-    }, [activeInput, sourceLang, targetLang, isRecording]);
-
-    const stopRecognition = useCallback(() => {
-        if (recognitionRef.current && isRecording) {
-            recognitionRef.current.stop();
-            setIsRecording(false);
-        }
-    }, [isRecording]);
-
-    useEffect(() => {
-        if (conversationModeActive) {
-            startRecognition();
-        } else {
-            stopRecognition();
-        }
-    }, [conversationModeActive, activeInput, startRecognition, stopRecognition]);
 
     const playAudio = useCallback(async (textToPlay: string) => {
         if (!textToPlay.trim() || textToPlay === '...') return;
@@ -107,32 +79,8 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const processAudioQueue = useCallback(async () => {
-        if (isPlayingAudio.current || audioQueue.current.length === 0) return;
-
-        isPlayingAudio.current = true;
-        const audioTask = audioQueue.current.shift();
-        
-        if (audioTask) {
-            try {
-                await audioTask();
-            } catch (err) {
-                console.error("Error processing audio task:", err);
-            } finally {
-                isPlayingAudio.current = false;
-                processAudioQueue();
-            }
-        } else {
-             isPlayingAudio.current = false;
-        }
-    }, []);
-    
-    const handleQueueAudio = useCallback((textToPlay: string) => {
-        audioQueue.current.push(() => playAudio(textToPlay));
-        processAudioQueue();
-    }, [playAudio, processAudioQueue]);
-    
     const handleTranslationAndSpeech = useCallback(async (text: string, direction: 'source' | 'target') => {
+        if (!text.trim()) return;
         setError(null);
         
         const isSourceToTarget = direction === 'source';
@@ -141,8 +89,8 @@ const App: React.FC = () => {
         const fromLangName = SUPPORTED_LANGUAGES.find(l => l.code === fromLangCode)?.name || 'auto';
         const toLangName = SUPPORTED_LANGUAGES.find(l => l.code === toLangCode)?.name || 'the target language';
         
-        const userMessage: Message = { id: Date.now(), text, isSourceLanguage: isSourceToTarget };
-        const translationPlaceholder: Message = { id: Date.now() + 1, text: '...', isSourceLanguage: !isSourceToTarget, isLoading: true };
+        const userMessage: Message = { id: Date.now(), text, isSourceLanguage: true }; // User input is always "source" bubble color
+        const translationPlaceholder: Message = { id: Date.now() + 1, text: '...', isSourceLanguage: false, isLoading: true };
 
         setConversation(prev => [...prev, userMessage, translationPlaceholder]);
 
@@ -155,24 +103,49 @@ const App: React.FC = () => {
                 : msg
             ));
             
-            const conversationTask = async () => {
-                await playAudio(translated);
-                if (conversationModeActive) {
-                    setActiveInput(prev => prev === 'source' ? 'target' : 'source');
-                }
-            };
+            // Await audio playback before proceeding
+            await playAudio(translated);
 
-            audioQueue.current.push(conversationTask);
-            processAudioQueue();
+            if (conversationModeActive) {
+                // Switch language and continue recognition
+                setActiveInput(prev => prev === 'source' ? 'target' : 'source');
+            }
 
         } catch (err) {
             console.error(err);
             const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
             setError(`Translation failed: ${errorMessage}`);
+            // Clean up failed messages
             setConversation(prev => prev.filter(msg => msg.id !== userMessage.id && msg.id !== translationPlaceholder.id));
             setConversationModeActive(false);
         }
-    }, [sourceLang, targetLang, conversationModeActive, playAudio, processAudioQueue]);
+    }, [sourceLang, targetLang, conversationModeActive, playAudio]);
+
+    const startRecognition = useCallback(() => {
+        if (recognitionRef.current && !isRecording) {
+            finalTranscriptAggregatedRef.current = '';
+            setCurrentTranscript('');
+            recognitionRef.current.lang = activeInput === 'source' ? sourceLang : targetLang;
+            recognitionRef.current.start();
+            setIsRecording(true);
+            setError(null);
+        }
+    }, [activeInput, sourceLang, targetLang, isRecording]);
+
+    const stopRecognition = useCallback(() => {
+        if (recognitionRef.current && isRecording) {
+            recognitionRef.current.stop();
+            setIsRecording(false);
+        }
+    }, [isRecording]);
+
+    useEffect(() => {
+        if (conversationModeActive) {
+            startRecognition();
+        } else {
+            stopRecognition();
+        }
+    }, [conversationModeActive, activeInput, startRecognition, stopRecognition]);
 
     useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -244,12 +217,12 @@ const App: React.FC = () => {
     };
 
     const micButtonClasses = conversationModeActive
-        ? 'bg-red-500 scale-110 animate-pulse'
-        : 'bg-blue-500';
+        ? 'bg-red-700 scale-110 animate-pulse'
+        : 'bg-red-600';
 
     return (
-        <div className="h-screen w-screen bg-white flex flex-col font-sans text-gray-800">
-            <header className="text-center p-4 border-b bg-gray-50 flex-shrink-0">
+        <div className="h-screen w-screen bg-[#FFF9F0] flex flex-col font-sans text-gray-800">
+            <header className="text-center p-4 border-b border-gray-200 bg-white flex-shrink-0">
                 <h1 className="text-xl font-semibold text-gray-700">Translate</h1>
             </header>
             
@@ -266,19 +239,19 @@ const App: React.FC = () => {
                         key={msg.id}
                         text={msg.text} 
                         isSource={msg.isSourceLanguage} 
-                        onPlayAudio={() => handleQueueAudio(msg.text)} 
+                        onPlayAudio={() => playAudio(msg.text)} 
                         isLoading={msg.isLoading} 
                     />
                 ))}
 
-                {isRecording && <div className="text-center text-blue-500 p-2 self-center bg-blue-50 rounded-lg">{currentTranscript || 'Listening...'}</div>}
+                {isRecording && <div className="text-center text-red-600 p-2 self-center bg-red-50 rounded-lg">{currentTranscript || 'Listening...'}</div>}
 
                 <div ref={chatEndRef} />
             </main>
 
             {error && <div className="p-2 bg-red-100 text-red-700 text-center text-sm flex-shrink-0">{error}</div>}
 
-            <footer className="p-4 bg-gray-100 border-t flex-shrink-0">
+            <footer className="p-4 bg-white border-t flex-shrink-0">
                 <div className="flex justify-evenly items-center">
                     <Flag langCode={sourceLang} onClick={() => openLanguageModal('source')} isActive={activeInput === 'source'} />
                     
