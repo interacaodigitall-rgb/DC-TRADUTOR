@@ -8,13 +8,14 @@ declare global {
 }
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { translateText, generateSpeech } from './services/geminiService';
+import { translateText, generateSpeech, getAiClient } from './services/geminiService';
 import { SUPPORTED_LANGUAGES } from './constants';
 import { decode, decodeAudioData } from './utils/audio';
 import MicIcon from './components/icons/MicIcon';
 import Flag from './components/Flag';
 import LanguageModal from './components/LanguageModal';
 import ChatBubble from './components/ChatBubble';
+import ApiKeyError from './components/ApiKeyError';
 
 interface Message {
     id: number;
@@ -35,10 +36,24 @@ const App: React.FC = () => {
     const [modalTarget, setModalTarget] = useState<'source' | 'target'>('source');
     const [activeInput, setActiveInput] = useState<'source' | 'target'>('source');
     const [conversationModeActive, setConversationModeActive] = useState<boolean>(false);
+    const [isKeyMissing, setIsKeyMissing] = useState<boolean>(false);
+
 
     const recognitionRef = useRef<any | null>(null);
     const chatEndRef = useRef<HTMLDivElement | null>(null);
     const finalTranscriptAggregatedRef = useRef<string>('');
+
+    useEffect(() => {
+        try {
+            getAiClient();
+        } catch (err) {
+            if (err instanceof Error && err.message.includes("API_KEY")) {
+                setIsKeyMissing(true);
+            } else {
+                setError("An unexpected error occurred on startup.");
+            }
+        }
+    }, []);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -219,6 +234,10 @@ const App: React.FC = () => {
     const micButtonClasses = conversationModeActive
         ? 'bg-red-700 scale-110 animate-pulse'
         : 'bg-red-600';
+
+    if (isKeyMissing) {
+        return <ApiKeyError />;
+    }
 
     return (
         <div className="h-screen w-screen bg-[#FFF9F0] flex flex-col font-sans text-gray-800">

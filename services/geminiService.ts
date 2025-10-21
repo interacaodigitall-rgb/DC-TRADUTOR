@@ -3,7 +3,7 @@ import { GoogleGenAI, Modality } from "@google/genai";
 // Lazily initialize the AI client to prevent app crash on load if API key is not set.
 let ai: GoogleGenAI | null = null;
 
-function getAiClient(): GoogleGenAI {
+export function getAiClient(): GoogleGenAI {
   if (!process.env.API_KEY) {
     // This error will be caught by the calling function's try...catch block in App.tsx.
     throw new Error("API_KEY environment variable is not configured for this deployment.");
