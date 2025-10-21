@@ -72,6 +72,108 @@ const App: React.FC = () => {
         }
     }, [conversationModeActive, activeInput, startRecognition, stopRecognition]);
 
+    const playAudio = useCallback(async (textToPlay: string) => {
+        if (!textToPlay.trim() || textToPlay === '...') return;
+        let outputAudioContext: AudioContext | null = null;
+        try {
+            const audioData = await generateSpeech(textToPlay);
+            outputAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            const outputNode = outputAudioContext.createGain();
+            outputNode.connect(outputAudioContext.destination);
+
+            const audioBuffer = await decodeAudioData(
+                decode(audioData),
+                outputAudioContext,
+                24000,
+                1
+            );
+            
+            return new Promise<void>((resolve) => {
+                const source = outputAudioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(outputNode);
+                source.onended = () => {
+                    outputAudioContext?.close().catch(console.error);
+                    resolve();
+                };
+                source.start();
+            });
+        } catch (err) {
+            console.error("Error during audio playback:", err);
+            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+            setError(`Audio playback failed: ${errorMessage}`);
+            outputAudioContext?.close().catch(console.error);
+            throw err;
+        }
+    }, []);
+
+    const processAudioQueue = useCallback(async () => {
+        if (isPlayingAudio.current || audioQueue.current.length === 0) return;
+
+        isPlayingAudio.current = true;
+        const audioTask = audioQueue.current.shift();
+        
+        if (audioTask) {
+            try {
+                await audioTask();
+            } catch (err) {
+                console.error("Error processing audio task:", err);
+            } finally {
+                isPlayingAudio.current = false;
+                processAudioQueue();
+            }
+        } else {
+             isPlayingAudio.current = false;
+        }
+    }, []);
+    
+    const handleQueueAudio = useCallback((textToPlay: string) => {
+        audioQueue.current.push(() => playAudio(textToPlay));
+        processAudioQueue();
+    }, [playAudio, processAudioQueue]);
+    
+    const handleTranslationAndSpeech = useCallback(async (text: string, direction: 'source' | 'target') => {
+        setError(null);
+        
+        const isSourceToTarget = direction === 'source';
+        const fromLangCode = isSourceToTarget ? sourceLang : targetLang;
+        const toLangCode = isSourceToTarget ? targetLang : sourceLang;
+        const fromLangName = SUPPORTED_LANGUAGES.find(l => l.code === fromLangCode)?.name || 'auto';
+        const toLangName = SUPPORTED_LANGUAGES.find(l => l.code === toLangCode)?.name || 'the target language';
+        
+        const userMessage: Message = { id: Date.now(), text, isSourceLanguage: isSourceToTarget };
+        const translationPlaceholder: Message = { id: Date.now() + 1, text: '...', isSourceLanguage: !isSourceToTarget, isLoading: true };
+
+        setConversation(prev => [...prev, userMessage, translationPlaceholder]);
+
+        try {
+            const translated = await translateText(text, fromLangName, toLangName);
+            
+            setConversation(prev => prev.map(msg => 
+                msg.id === translationPlaceholder.id 
+                ? { ...msg, text: translated, isLoading: false } 
+                : msg
+            ));
+            
+            const conversationTask = async () => {
+                await playAudio(translated);
+                if (conversationModeActive) {
+                    setActiveInput(prev => prev === 'source' ? 'target' : 'source');
+                }
+            };
+
+            audioQueue.current.push(conversationTask);
+            processAudioQueue();
+
+        } catch (err) {
+            console.error(err);
+            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+            setError(`Translation failed: ${errorMessage}`);
+            setConversation(prev => prev.filter(msg => msg.id !== userMessage.id && msg.id !== translationPlaceholder.id));
+            setConversationModeActive(false);
+        }
+    }, [sourceLang, targetLang, conversationModeActive, playAudio, processAudioQueue]);
+
     useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
@@ -108,7 +210,6 @@ const App: React.FC = () => {
             if (finalTranscript) {
               handleTranslationAndSpeech(finalTranscript, activeInput);
             } else if (conversationModeActive) {
-              // If nothing was said, just restart listening for the same person
               startRecognition();
             }
             finalTranscriptAggregatedRef.current = '';
@@ -120,100 +221,7 @@ const App: React.FC = () => {
         return () => {
             recognition.abort();
         };
-    }, [activeInput, conversationModeActive, startRecognition]);
-
-    const processAudioQueue = useCallback(async () => {
-        if (isPlayingAudio.current || audioQueue.current.length === 0) return;
-
-        isPlayingAudio.current = true;
-        const playAudio = audioQueue.current.shift();
-        if (playAudio) {
-            try {
-                await playAudio();
-            } catch (err) {
-                console.error("Error playing audio from queue:", err);
-            } finally {
-                isPlayingAudio.current = false;
-                processAudioQueue();
-            }
-        }
-    }, []);
-
-    const handlePlayAudio = (textToPlay: string, isFromQueue: boolean = false) => {
-        const play = async () => {
-            if (!textToPlay.trim() || textToPlay === '...') return;
-            try {
-                const audioData = await generateSpeech(textToPlay);
-                const outputAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-                const outputNode = outputAudioContext.createGain();
-                outputNode.connect(outputAudioContext.destination);
-
-                const audioBuffer = await decodeAudioData(
-                    decode(audioData),
-                    outputAudioContext,
-                    24000,
-                    1
-                );
-                
-                return new Promise<void>((resolve) => {
-                    const source = outputAudioContext.createBufferSource();
-                    source.buffer = audioBuffer;
-                    source.connect(outputNode);
-                    source.onended = () => resolve();
-                    source.start();
-                });
-            } catch (err) {
-                console.error(err);
-                const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-                setError(`Audio playback failed: ${errorMessage}`);
-                throw err;
-            }
-        };
-
-        audioQueue.current.push(play);
-        processAudioQueue();
-    };
-
-    const handleTranslationAndSpeech = useCallback(async (text: string, direction: 'source' | 'target') => {
-        setError(null);
-        
-        const isSourceToTarget = direction === 'source';
-        const fromLangCode = isSourceToTarget ? sourceLang : targetLang;
-        const toLangCode = isSourceToTarget ? targetLang : sourceLang;
-        const fromLangName = SUPPORTED_LANGUAGES.find(l => l.code === fromLangCode)?.name || 'auto';
-        const toLangName = SUPPORTED_LANGUAGES.find(l => l.code === toLangCode)?.name || 'the target language';
-        
-        const userMessage: Message = { id: Date.now(), text, isSourceLanguage: isSourceToTarget };
-        const translationPlaceholder: Message = { id: Date.now() + 1, text: '...', isSourceLanguage: !isSourceToTarget, isLoading: true };
-
-        setConversation(prev => [...prev, userMessage, translationPlaceholder]);
-
-        try {
-            const translated = await translateText(text, fromLangName, toLangName);
-            
-            setConversation(prev => prev.map(msg => 
-                msg.id === translationPlaceholder.id 
-                ? { ...msg, text: translated, isLoading: false } 
-                : msg
-            ));
-            
-            audioQueue.current.push(async () => {
-                await handlePlayAudio(translated, true);
-                // This ensures the language switch happens only after this specific audio finishes
-                if (conversationModeActive) {
-                    setActiveInput(prev => prev === 'source' ? 'target' : 'source');
-                }
-            });
-            processAudioQueue();
-
-        } catch (err) {
-            console.error(err);
-            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-            setError(`Translation failed: ${errorMessage}`);
-            setConversation(prev => prev.filter(msg => msg.id !== userMessage.id && msg.id !== translationPlaceholder.id));
-            setConversationModeActive(false); // Stop conversation on error
-        }
-    }, [sourceLang, targetLang, conversationModeActive, processAudioQueue]);
+    }, [activeInput, conversationModeActive, startRecognition, handleTranslationAndSpeech]);
 
     const toggleConversationMode = () => {
         setConversationModeActive(prev => !prev);
@@ -258,7 +266,7 @@ const App: React.FC = () => {
                         key={msg.id}
                         text={msg.text} 
                         isSource={msg.isSourceLanguage} 
-                        onPlayAudio={() => handlePlayAudio(msg.text)} 
+                        onPlayAudio={() => handleQueueAudio(msg.text)} 
                         isLoading={msg.isLoading} 
                     />
                 ))}
