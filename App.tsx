@@ -15,6 +15,7 @@ import { useDebounce } from './utils/hooks';
 import SwapIcon from './components/icons/SwapIcon';
 import TranslationPanel from './components/TranslationPanel';
 import LanguageSelector from './components/LanguageSelector';
+import ApiKeyError from './components/ApiKeyError';
 import { type Language } from './types';
 
 const App: React.FC = () => {
@@ -25,6 +26,7 @@ const App: React.FC = () => {
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
+    const [isApiKeyMissing, setIsApiKeyMissing] = useState<boolean>(false);
     
     const debouncedInputText = useDebounce(inputText, 500);
     const recognitionRef = useRef<any | null>(null);
@@ -47,8 +49,12 @@ const App: React.FC = () => {
             setOutputText(translated);
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-            setError(`Translation failed: ${errorMessage}`);
-            setOutputText('');
+            if (errorMessage.includes('API_KEY environment variable not defined')) {
+                setIsApiKeyMissing(true);
+            } else {
+                setError(`Translation failed: ${errorMessage}`);
+                setOutputText('');
+            }
         } finally {
             setIsLoading(false);
         }
@@ -85,7 +91,11 @@ const App: React.FC = () => {
         } catch (err) {
             console.error("Error during audio playback:", err);
             const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-            setError(`Audio playback failed: ${errorMessage}`);
+            if (errorMessage.includes('API_KEY environment variable not defined')) {
+                setIsApiKeyMissing(true);
+            } else {
+                setError(`Audio playback failed: ${errorMessage}`);
+            }
             outputAudioContext?.close().catch(console.error);
         }
     }, []);
@@ -174,6 +184,10 @@ const App: React.FC = () => {
         setInputText('');
         setOutputText('');
     };
+
+    if (isApiKeyMissing) {
+        return <ApiKeyError />;
+    }
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 sm:p-6 lg:p-8 font-sans text-slate-800">
