@@ -8,7 +8,7 @@ declare global {
 }
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { translateText, generateSpeech, getAiClient } from './services/geminiService';
+import { translateText, generateSpeech, getAiClient, initializeAiClient } from './services/geminiService';
 import { SUPPORTED_LANGUAGES } from './constants';
 import { decode, decodeAudioData } from './utils/audio';
 import MicIcon from './components/icons/MicIcon';
@@ -36,7 +36,7 @@ const App: React.FC = () => {
     const [modalTarget, setModalTarget] = useState<'source' | 'target'>('source');
     const [activeInput, setActiveInput] = useState<'source' | 'target'>('source');
     const [conversationModeActive, setConversationModeActive] = useState<boolean>(false);
-    const [isKeyMissing, setIsKeyMissing] = useState<boolean>(false);
+    const [apiKeyError, setApiKeyError] = useState<string | null>(null);
 
 
     const recognitionRef = useRef<any | null>(null);
@@ -47,13 +47,26 @@ const App: React.FC = () => {
         try {
             getAiClient();
         } catch (err) {
-            if (err instanceof Error && err.message.includes("API_KEY")) {
-                setIsKeyMissing(true);
+            if (err instanceof Error) {
+                setApiKeyError(err.message);
             } else {
-                setError("An unexpected error occurred on startup.");
+                setApiKeyError("An unexpected error occurred on startup.");
             }
         }
     }, []);
+    
+    const handleApiKeySubmit = async (key: string) => {
+        try {
+            initializeAiClient(key);
+            // Test the key with a simple API call to ensure it's valid.
+            await translateText("hello", "English", "Portuguese");
+            setApiKeyError(null); // Key is valid, clear error and render the app.
+        } catch (err) {
+            console.error("API Key validation failed:", err);
+            setApiKeyError("A chave fornecida é inválida ou a API não respondeu. Verifique a chave e sua conexão de rede, e tente novamente.");
+        }
+    };
+
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -235,8 +248,8 @@ const App: React.FC = () => {
         ? 'bg-red-700 scale-110 animate-pulse'
         : 'bg-red-600';
 
-    if (isKeyMissing) {
-        return <ApiKeyError />;
+    if (apiKeyError) {
+        return <ApiKeyError onApiKeySubmit={handleApiKeySubmit} error={apiKeyError} />;
     }
 
     return (
