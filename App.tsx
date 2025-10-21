@@ -8,12 +8,11 @@ declare global {
 }
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { translateText, generateSpeech, getAiClient, initializeAiClient } from './services/geminiService';
+import { translateText, generateSpeech, getAiClient } from './services/geminiService';
 import { SUPPORTED_LANGUAGES } from './constants';
 import { decode, decodeAudioData } from './utils/audio';
 import { useDebounce } from './utils/hooks';
 import SwapIcon from './components/icons/SwapIcon';
-import ApiKeyError from './components/ApiKeyError';
 import TranslationPanel from './components/TranslationPanel';
 import LanguageSelector from './components/LanguageSelector';
 import { type Language } from './types';
@@ -26,32 +25,11 @@ const App: React.FC = () => {
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
-    const [apiKeyError, setApiKeyError] = useState<string | null>(null);
     
     const debouncedInputText = useDebounce(inputText, 500);
     const recognitionRef = useRef<any | null>(null);
     const finalTranscriptRef = useRef<string>('');
     const startRecAfterSwap = useRef(false);
-
-    useEffect(() => {
-        try {
-            getAiClient();
-        } catch (err) {
-            setApiKeyError(err instanceof Error ? err.message : "An unexpected error occurred on startup.");
-        }
-    }, []);
-
-    const handleApiKeySubmit = async (key: string) => {
-        try {
-            initializeAiClient(key);
-            // Test the key with a simple translation
-            await translateText("hello", "English", "Portuguese");
-            setApiKeyError(null); // Key is valid, clear the error screen
-        } catch (err) {
-            console.error("API Key validation failed:", err);
-            setApiKeyError("A chave fornecida é inválida ou a API não respondeu. Verifique a chave e sua conexão de rede, e tente novamente.");
-        }
-    };
 
     const handleTranslate = useCallback(async (textToTranslate: string) => {
         if (!textToTranslate.trim()) {
@@ -83,6 +61,7 @@ const App: React.FC = () => {
     const playAudio = useCallback(async (textToPlay: string) => {
         if (!textToPlay.trim()) return;
         let outputAudioContext: AudioContext | null = null;
+        setError(null);
         try {
             const audioData = await generateSpeech(textToPlay);
             outputAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
@@ -195,10 +174,6 @@ const App: React.FC = () => {
         setInputText('');
         setOutputText('');
     };
-
-    if (apiKeyError) {
-        return <ApiKeyError onApiKeySubmit={handleApiKeySubmit} error={apiKeyError} />;
-    }
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 sm:p-6 lg:p-8 font-sans text-slate-800">

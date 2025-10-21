@@ -1,43 +1,23 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
-// Lazily initialize the AI client to prevent app crash on load if API key is not set.
 let ai: GoogleGenAI | null = null;
 
 /**
- * Initializes or re-initializes the AI client with a specific API key.
- * This allows the user to provide a key at runtime if the environment variable is missing.
- * @param apiKey The API key to use for initialization.
- */
-export function initializeAiClient(apiKey: string): void {
-  if (!apiKey) {
-    throw new Error("Provided API key is empty.");
-  }
-  ai = new GoogleGenAI({ apiKey });
-}
-
-/**
  * Gets the singleton instance of the GoogleGenAI client.
- * It first checks if the client is already initialized. If not, it tries
- * to initialize from environment variables.
+ * Initializes the client using the API_KEY from environment variables if not already done.
  * @returns The initialized GoogleGenAI client.
- * @throws An error if the API key is not found in environment variables and the client hasn't been initialized manually.
+ * @throws An error if the API_KEY environment variable is not configured.
  */
 export function getAiClient(): GoogleGenAI {
-  if (ai) {
-    return ai;
+  if (!ai) {
+    // The API key must be available as an environment variable.
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API_KEY environment variable not set. Please configure it in your deployment environment.");
+    }
+    ai = new GoogleGenAI({ apiKey });
   }
-
-  // FIX: Check for both standard 'API_KEY' and user's 'CHAVE_API' for robustness.
-  const apiKey = process.env.API_KEY || process.env.CHAVE_API;
-
-  if (!apiKey) {
-    // This error will be caught by the calling function's try...catch block in App.tsx.
-    throw new Error("API_KEY environment variable is not configured for this deployment.");
-  }
-  
-  initializeAiClient(apiKey);
-  // The 'ai' variable is guaranteed to be non-null here.
-  return ai!;
+  return ai;
 }
 
 
