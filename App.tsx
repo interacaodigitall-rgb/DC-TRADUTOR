@@ -34,14 +34,43 @@ const App: React.FC = () => {
     const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
     const [modalTarget, setModalTarget] = useState<'source' | 'target'>('source');
     const [activeInput, setActiveInput] = useState<'source' | 'target'>('source');
+    const [conversationModeActive, setConversationModeActive] = useState<boolean>(false);
 
     const recognitionRef = useRef<any | null>(null);
     const chatEndRef = useRef<HTMLDivElement | null>(null);
     const finalTranscriptAggregatedRef = useRef<string>('');
+    const audioQueue = useRef<(() => Promise<void>)[]>([]);
+    const isPlayingAudio = useRef(false);
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [conversation, currentTranscript]);
+
+    const startRecognition = useCallback(() => {
+        if (recognitionRef.current && !isRecording) {
+            finalTranscriptAggregatedRef.current = '';
+            setCurrentTranscript('');
+            recognitionRef.current.lang = activeInput === 'source' ? sourceLang : targetLang;
+            recognitionRef.current.start();
+            setIsRecording(true);
+            setError(null);
+        }
+    }, [activeInput, sourceLang, targetLang, isRecording]);
+
+    const stopRecognition = useCallback(() => {
+        if (recognitionRef.current && isRecording) {
+            recognitionRef.current.stop();
+            setIsRecording(false);
+        }
+    }, [isRecording]);
+
+    useEffect(() => {
+        if (conversationModeActive) {
+            startRecognition();
+        } else {
+            stopRecognition();
+        }
+    }, [conversationModeActive, activeInput, startRecognition, stopRecognition]);
 
     useEffect(() => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -70,6 +99,7 @@ const App: React.FC = () => {
             console.error('Speech recognition error:', event.error);
             setError(`Speech recognition error: ${event.error}`);
             setIsRecording(false);
+            setConversationModeActive(false);
         };
         
         recognition.onend = () => {
@@ -77,13 +107,72 @@ const App: React.FC = () => {
             const finalTranscript = finalTranscriptAggregatedRef.current.trim();
             if (finalTranscript) {
               handleTranslationAndSpeech(finalTranscript, activeInput);
+            } else if (conversationModeActive) {
+              // If nothing was said, just restart listening for the same person
+              startRecognition();
             }
             finalTranscriptAggregatedRef.current = '';
             setCurrentTranscript('');
         };
         
         recognitionRef.current = recognition;
+
+        return () => {
+            recognition.abort();
+        };
+    }, [activeInput, conversationModeActive, startRecognition]);
+
+    const processAudioQueue = useCallback(async () => {
+        if (isPlayingAudio.current || audioQueue.current.length === 0) return;
+
+        isPlayingAudio.current = true;
+        const playAudio = audioQueue.current.shift();
+        if (playAudio) {
+            try {
+                await playAudio();
+            } catch (err) {
+                console.error("Error playing audio from queue:", err);
+            } finally {
+                isPlayingAudio.current = false;
+                processAudioQueue();
+            }
+        }
     }, []);
+
+    const handlePlayAudio = (textToPlay: string, isFromQueue: boolean = false) => {
+        const play = async () => {
+            if (!textToPlay.trim() || textToPlay === '...') return;
+            try {
+                const audioData = await generateSpeech(textToPlay);
+                const outputAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                const outputNode = outputAudioContext.createGain();
+                outputNode.connect(outputAudioContext.destination);
+
+                const audioBuffer = await decodeAudioData(
+                    decode(audioData),
+                    outputAudioContext,
+                    24000,
+                    1
+                );
+                
+                return new Promise<void>((resolve) => {
+                    const source = outputAudioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(outputNode);
+                    source.onended = () => resolve();
+                    source.start();
+                });
+            } catch (err) {
+                console.error(err);
+                const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+                setError(`Audio playback failed: ${errorMessage}`);
+                throw err;
+            }
+        };
+
+        audioQueue.current.push(play);
+        processAudioQueue();
+    };
 
     const handleTranslationAndSpeech = useCallback(async (text: string, direction: 'source' | 'target') => {
         setError(null);
@@ -94,17 +183,8 @@ const App: React.FC = () => {
         const fromLangName = SUPPORTED_LANGUAGES.find(l => l.code === fromLangCode)?.name || 'auto';
         const toLangName = SUPPORTED_LANGUAGES.find(l => l.code === toLangCode)?.name || 'the target language';
         
-        const userMessage: Message = {
-            id: Date.now(),
-            text,
-            isSourceLanguage: isSourceToTarget,
-        };
-        const translationPlaceholder: Message = {
-            id: Date.now() + 1,
-            text: '...',
-            isSourceLanguage: !isSourceToTarget,
-            isLoading: true,
-        };
+        const userMessage: Message = { id: Date.now(), text, isSourceLanguage: isSourceToTarget };
+        const translationPlaceholder: Message = { id: Date.now() + 1, text: '...', isSourceLanguage: !isSourceToTarget, isLoading: true };
 
         setConversation(prev => [...prev, userMessage, translationPlaceholder]);
 
@@ -117,81 +197,47 @@ const App: React.FC = () => {
                 : msg
             ));
             
-            await handlePlayAudio(translated);
-            setActiveInput(prev => prev === 'source' ? 'target' : 'source');
+            audioQueue.current.push(async () => {
+                await handlePlayAudio(translated, true);
+                // This ensures the language switch happens only after this specific audio finishes
+                if (conversationModeActive) {
+                    setActiveInput(prev => prev === 'source' ? 'target' : 'source');
+                }
+            });
+            processAudioQueue();
 
         } catch (err) {
             console.error(err);
             const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
             setError(`Translation failed: ${errorMessage}`);
             setConversation(prev => prev.filter(msg => msg.id !== userMessage.id && msg.id !== translationPlaceholder.id));
+            setConversationModeActive(false); // Stop conversation on error
         }
-    }, [sourceLang, targetLang]);
+    }, [sourceLang, targetLang, conversationModeActive, processAudioQueue]);
 
-
-    const handleRecord = () => {
-        if (isRecording) {
-            recognitionRef.current?.stop();
-        } else {
-            if (recognitionRef.current) {
-                finalTranscriptAggregatedRef.current = '';
-                setCurrentTranscript('');
-                recognitionRef.current.lang = activeInput === 'source' ? sourceLang : targetLang;
-                recognitionRef.current.start();
-                setIsRecording(true);
-                setError(null);
-            } else {
-                 setError("Speech recognition is not available.");
-            }
-        }
+    const toggleConversationMode = () => {
+        setConversationModeActive(prev => !prev);
     };
     
-    const handlePlayAudio = async (textToPlay: string) => {
-        if (!textToPlay.trim() || textToPlay === '...') return;
-        try {
-            const audioData = await generateSpeech(textToPlay);
-            const outputAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-            const outputNode = outputAudioContext.createGain();
-            outputNode.connect(outputAudioContext.destination);
-
-            const audioBuffer = await decodeAudioData(
-                decode(audioData),
-                outputAudioContext,
-                24000,
-                1
-            );
-            
-            const source = outputAudioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(outputNode);
-            source.start();
-        } catch (err) {
-            console.error(err);
-            const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-            setError(`Audio playback failed: ${errorMessage}`);
-        }
-    };
-
     const openLanguageModal = (target: 'source' | 'target') => {
         setModalTarget(target);
         setIsModalOpen(true);
     };
 
     const handleSelectLanguage = (langCode: string) => {
+        setConversationModeActive(false);
+        setConversation([]);
+        setActiveInput('source');
         if (modalTarget === 'source') {
-            if (langCode !== sourceLang) {
-                setConversation([]);
-                setActiveInput('source');
-            }
             setSourceLang(langCode);
         } else {
-            if (langCode !== targetLang) {
-                setConversation([]);
-                setActiveInput('source');
-            }
             setTargetLang(langCode);
         }
     };
+
+    const micButtonClasses = conversationModeActive
+        ? 'bg-red-500 scale-110 animate-pulse'
+        : 'bg-blue-500';
 
     return (
         <div className="h-screen w-screen bg-white flex flex-col font-sans text-gray-800">
@@ -228,7 +274,7 @@ const App: React.FC = () => {
                 <div className="flex justify-evenly items-center">
                     <Flag langCode={sourceLang} onClick={() => openLanguageModal('source')} isActive={activeInput === 'source'} />
                     
-                    <button onClick={handleRecord} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-lg ${isRecording ? 'bg-red-500 scale-110' : 'bg-blue-500'}`} aria-label={isRecording ? 'Stop recording' : 'Start recording'}>
+                    <button onClick={toggleConversationMode} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 transform shadow-lg ${micButtonClasses}`} aria-label={conversationModeActive ? 'End conversation' : 'Start conversation'}>
                         <MicIcon recording={isRecording} />
                     </button>
                     
