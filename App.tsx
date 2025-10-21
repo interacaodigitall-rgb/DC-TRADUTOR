@@ -8,14 +8,13 @@ declare global {
 }
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { translateText, generateSpeech, hasApiKey as geminiServiceHasApiKey } from './services/geminiService';
+import { translateText, generateSpeech } from './services/geminiService';
 import { SUPPORTED_LANGUAGES } from './constants';
 import { decode, decodeAudioData } from './utils/audio';
 import { useDebounce } from './utils/hooks';
 import SwapIcon from './components/icons/SwapIcon';
 import TranslationPanel from './components/TranslationPanel';
 import LanguageSelector from './components/LanguageSelector';
-import ApiKeyError from './components/ApiKeyError';
 import { type Language } from './types';
 
 const App: React.FC = () => {
@@ -26,21 +25,11 @@ const App: React.FC = () => {
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
-    const [hasApiKey, setHasApiKey] = useState<boolean>(false);
-    const [isCheckingApiKey, setIsCheckingApiKey] = useState<boolean>(true);
     
     const debouncedInputText = useDebounce(inputText, 500);
     const recognitionRef = useRef<any | null>(null);
     const finalTranscriptRef = useRef<string>('');
     const startRecAfterSwap = useRef(false);
-
-    useEffect(() => {
-        const checkKey = () => {
-            setHasApiKey(geminiServiceHasApiKey());
-            setIsCheckingApiKey(false);
-        };
-        checkKey();
-    }, []);
 
     const handleTranslate = useCallback(async (textToTranslate: string) => {
         if (!textToTranslate.trim()) {
@@ -185,18 +174,6 @@ const App: React.FC = () => {
         setInputText('');
         setOutputText('');
     };
-
-    if (isCheckingApiKey) {
-        return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-blue-500"></div>
-            </div>
-        );
-    }
-
-    if (!hasApiKey) {
-        return <ApiKeyError onKeySubmit={() => setHasApiKey(true)} />;
-    }
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 sm:p-6 lg:p-8 font-sans text-slate-800">
