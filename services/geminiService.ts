@@ -4,12 +4,15 @@ import { GoogleGenAI, Modality } from "@google/genai";
 let ai: GoogleGenAI | null = null;
 
 export function getAiClient(): GoogleGenAI {
-  if (!process.env.API_KEY) {
+  // FIX: Check for both standard 'API_KEY' and user's 'CHAVE_API' for robustness.
+  const apiKey = process.env.API_KEY || process.env.CHAVE_API;
+
+  if (!apiKey) {
     // This error will be caught by the calling function's try...catch block in App.tsx.
     throw new Error("API_KEY environment variable is not configured for this deployment.");
   }
   if (!ai) {
-    ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    ai = new GoogleGenAI({ apiKey: apiKey });
   }
   return ai;
 }
