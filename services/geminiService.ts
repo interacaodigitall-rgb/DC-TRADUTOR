@@ -1,10 +1,19 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
-if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable is not set");
+// Lazily initialize the AI client to prevent app crash on load if API key is not set.
+let ai: GoogleGenAI | null = null;
+
+function getAiClient(): GoogleGenAI {
+  if (!process.env.API_KEY) {
+    // This error will be caught by the calling function's try...catch block in App.tsx.
+    throw new Error("API_KEY environment variable is not configured for this deployment.");
+  }
+  if (!ai) {
+    ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  }
+  return ai;
 }
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export async function translateText(
   text: string,
@@ -12,8 +21,9 @@ export async function translateText(
   targetLang: string
 ): Promise<string> {
   try {
+    const client = getAiClient();
     // FIX: Refactored to use systemInstruction for better prompting, per Gemini API guidelines.
-    const response = await ai.models.generateContent({
+    const response = await client.models.generateContent({
       model: "gemini-2.5-flash",
       contents: `"${text}"`,
       config: {
@@ -23,6 +33,9 @@ export async function translateText(
     return response.text.trim();
   } catch (error) {
     console.error("Error in translateText:", error);
+    if (error instanceof Error && error.message.includes("API_KEY")) {
+        throw error;
+    }
     throw new Error("Failed to translate text with Gemini API.");
   }
 }
@@ -30,7 +43,8 @@ export async function translateText(
 
 export async function generateSpeech(text: string): Promise<string> {
     try {
-        const response = await ai.models.generateContent({
+        const client = getAiClient();
+        const response = await client.models.generateContent({
             model: "gemini-2.5-flash-preview-tts",
             contents: [{ parts: [{ text: text }] }],
             config: {
@@ -52,6 +66,9 @@ export async function generateSpeech(text: string): Promise<string> {
         return base64Audio;
     } catch (error) {
         console.error("Error in generateSpeech:", error);
+        if (error instanceof Error && error.message.includes("API_KEY")) {
+            throw error;
+        }
         throw new Error("Failed to generate speech with Gemini API.");
     }
 }
