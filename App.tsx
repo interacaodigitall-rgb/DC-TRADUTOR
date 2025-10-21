@@ -8,13 +8,14 @@ declare global {
 }
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { translateText, generateSpeech, getAiClient } from './services/geminiService';
+import { translateText, generateSpeech, hasApiKey as geminiServiceHasApiKey } from './services/geminiService';
 import { SUPPORTED_LANGUAGES } from './constants';
 import { decode, decodeAudioData } from './utils/audio';
 import { useDebounce } from './utils/hooks';
 import SwapIcon from './components/icons/SwapIcon';
 import TranslationPanel from './components/TranslationPanel';
 import LanguageSelector from './components/LanguageSelector';
+import ApiKeyError from './components/ApiKeyError';
 import { type Language } from './types';
 
 const App: React.FC = () => {
@@ -25,11 +26,21 @@ const App: React.FC = () => {
     const [isRecording, setIsRecording] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
+    const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+    const [isCheckingApiKey, setIsCheckingApiKey] = useState<boolean>(true);
     
     const debouncedInputText = useDebounce(inputText, 500);
     const recognitionRef = useRef<any | null>(null);
     const finalTranscriptRef = useRef<string>('');
     const startRecAfterSwap = useRef(false);
+
+    useEffect(() => {
+        const checkKey = () => {
+            setHasApiKey(geminiServiceHasApiKey());
+            setIsCheckingApiKey(false);
+        };
+        checkKey();
+    }, []);
 
     const handleTranslate = useCallback(async (textToTranslate: string) => {
         if (!textToTranslate.trim()) {
@@ -175,11 +186,23 @@ const App: React.FC = () => {
         setOutputText('');
     };
 
+    if (isCheckingApiKey) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-blue-500"></div>
+            </div>
+        );
+    }
+
+    if (!hasApiKey) {
+        return <ApiKeyError onKeySubmit={() => setHasApiKey(true)} />;
+    }
+
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col items-center p-4 sm:p-6 lg:p-8 font-sans text-slate-800">
             <div className="w-full max-w-5xl mx-auto">
                 <header className="text-center mb-8">
-                    <h1 className="text-4xl sm:text-5xl font-bold text-gray-800 tracking-tight">Ayla Translator</h1>
+                    <h1 className="text-4xl sm:text-5xl font-bold text-gray-800 tracking-tight">Ayla Tradutora</h1>
                 </header>
 
                 <main className="bg-white rounded-2xl shadow-xl border border-gray-200/80 p-4 sm:p-6">
@@ -234,7 +257,7 @@ const App: React.FC = () => {
                             isTargetMicDisabled={sourceLang === 'auto'}
                         />
                     </div>
-                     {error && <div className="mt-4 p-3 bg-red-100 text-red-700 text-center text-sm rounded-lg">{error}</div>}
+                     {error && <div className="mt-4 p-3 bg-red-100 text-red-700 text-center text-sm rounded-lg" role="alert">{error}</div>}
                 </main>
 
                 <footer className="text-center mt-8 text-sm text-gray-400">

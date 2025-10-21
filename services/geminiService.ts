@@ -1,20 +1,31 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
 let ai: GoogleGenAI | null = null;
+let apiKey: string | null = process.env.API_KEY || null;
+
+export function hasApiKey(): boolean {
+  return !!apiKey;
+}
+
+export function submitApiKey(key: string) {
+  if (!key || !key.trim()) {
+    throw new Error("Invalid API key provided.");
+  }
+  apiKey = key;
+  ai = null; // Invalidate the old client instance so a new one is created with the new key.
+}
 
 /**
  * Gets the singleton instance of the GoogleGenAI client.
- * Initializes the client using the API_KEY from environment variables if not already done.
+ * Initializes the client using the stored API key.
  * @returns The initialized GoogleGenAI client.
- * @throws An error if the API_KEY environment variable is not configured.
+ * @throws An error if the API key is not configured.
  */
 export function getAiClient(): GoogleGenAI {
+  if (!apiKey) {
+    throw new Error("API key has not been set. Please provide a key.");
+  }
   if (!ai) {
-    // The API key must be available as an environment variable.
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-      throw new Error("API_KEY environment variable not set. Please configure it in your deployment environment.");
-    }
     ai = new GoogleGenAI({ apiKey });
   }
   return ai;
